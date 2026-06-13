@@ -9,14 +9,22 @@ export interface Player {
 
   wicketsTaken?: number;
   oversBowled?: number;
+  wicketDetails?: WicketDetails;
   Economy?: number;
   runsConceded?: number;
   wides?: number;
   NoBalls?: number;
+  deliveryHistory?: string[];
   dots?: number;
 }
 
+export interface WicketDetails {
+  type: "bowled" | "stumped" | "caught" | "runout";
+  fieldedBy?: string; // Player ID or Name of the fielder
+}
+
 export interface Team {
+  teamId?: string | undefined; // FK into the persistent `teams` table (for points attribution)
   name: string;
   totalRuns: number;
   wicketsLost: number;
@@ -26,6 +34,7 @@ export interface Team {
   wonMatches?: number;
   lostMatches?: number;
   extras?: number;
+  inningsComplete?: boolean;
 }
 
 export interface MatchState {
@@ -35,4 +44,7 @@ export interface MatchState {
   strikerId: string | null;
   nonStrikerId: string | null;
   currentBowlerId: string | null;
+  totalOvers?: number;
+  target?: number;
+  resultRecorded?: boolean; // guards /api/match/finish against double-counting points
 }
