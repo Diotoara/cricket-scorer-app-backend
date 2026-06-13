@@ -1561,7 +1561,9 @@ app.post("/api/match/finish", async (req: Request, res: Response) => {
 
     // Guard: only finish once the 2nd innings is actually decided.
     const chased = teamB.totalRuns >= target;
-    const isComplete = chased || !!teamB.inningsComplete;
+    const teamBMaxWickets = Math.max(1, (teamB.players?.length || 11) - 1);
+    const teamBAllOut = teamB.wicketsLost >= teamBMaxWickets;
+    const isComplete = chased || !!teamB.inningsComplete || teamBAllOut;
     if (!isComplete) {
       return res.status(400).json({ error: "Match is not complete yet." });
     }
