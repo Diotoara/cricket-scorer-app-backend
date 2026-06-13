@@ -41,7 +41,11 @@ function checkInningsComplete(currentMatch: MatchState): boolean {
   // 1. Overs limit reached (only if totalOvers is set and > 0)
   // 2. All out (10 wickets lost)
   const oversExhausted = totalOvers > 0 && battingTeam.oversPlayed >= totalOvers;
-  const allOut = battingTeam.wicketsLost >= 10;
+  // A side is all out when no batsman is left to partner the last man.
+  // With a full XI that's 10 wickets, but smaller squads are all out sooner.
+  const squadSize = battingTeam.players?.length || 11;
+  const maxWickets = Math.max(1, squadSize - 1);
+  const allOut = battingTeam.wicketsLost >= maxWickets;
 
   if (!oversExhausted && !allOut) {
     return false; // Innings continues
