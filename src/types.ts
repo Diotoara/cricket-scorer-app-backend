@@ -10,6 +10,9 @@ export interface Player {
   wicketsTaken?: number;
   oversBowled?: number;
   wicketDetails?: WicketDetails;
+  // True when the batsman left the crease injured (retired hurt). They are NOT
+  // out, keep their score, and can return to bat later.
+  retiredHurt?: boolean;
   Economy?: number;
   runsConceded?: number;
   wides?: number;

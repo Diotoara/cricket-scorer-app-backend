@@ -974,6 +974,11 @@ app.post("/api/match/next-batsman", async (req: Request, res: Response) => {
 
     let currentMatch = data.state as MatchState;
 
+    // A returning retired-hurt batsman is active again — clear the flag.
+    const battingTeam = currentMatch[currentMatch.currentInnings];
+    const incoming = battingTeam.players.find((p) => p.id === playerId);
+    if (incoming) incoming.retiredHurt = false;
+
     // Assign the selected player to the requested slot safely
     if (slot === "striker") {
       currentMatch.strikerId = playerId;
@@ -1000,6 +1005,88 @@ app.post("/api/match/next-batsman", async (req: Request, res: Response) => {
     return res
       .status(500)
       .json({ error: "Server error setting next batsman." });
+  }
+});
+
+// ==========================================
+// 4b. INJURE / RETIRE HURT A BATSMAN
+// Swaps the batsman at the given crease end for a replacement. The leaving
+// batsman is marked retiredHurt (NOT out) so they keep their score and can be
+// picked again later when another wicket falls.
+// ==========================================
+app.post("/api/match/injure-batsman", async (req: Request, res: Response) => {
+  const { slot, replacementId } = req.body; // slot: "striker" | "nonStriker"
+
+  if (slot !== "striker" && slot !== "nonStriker") {
+    return res.status(400).json({ error: "slot must be 'striker' or 'nonStriker'." });
+  }
+  if (!replacementId) {
+    return res.status(400).json({ error: "Missing replacementId in request body." });
+  }
+
+  try {
+    const { data, error: fetchError } = await supabase
+      .from("matches")
+      .select("state")
+      .eq("id", "live-match")
+      .single();
+
+    if (fetchError || !data) {
+      return res.status(404).json({ error: "Match state not found." });
+    }
+
+    const currentMatch = data.state as MatchState;
+    const battingTeam = currentMatch[currentMatch.currentInnings];
+
+    const injuredId = slot === "striker" ? currentMatch.strikerId : currentMatch.nonStrikerId;
+    if (!injuredId) {
+      return res.status(400).json({ error: `No batsman at the ${slot} end to replace.` });
+    }
+    if (replacementId === injuredId) {
+      return res.status(400).json({ error: "Replacement must be a different player." });
+    }
+
+    // The replacement must be in the squad, not out, and not already batting.
+    const replacement = battingTeam.players.find((p) => p.id === replacementId);
+    if (!replacement) {
+      return res.status(400).json({ error: "Replacement is not in the batting squad." });
+    }
+    if (replacement.wicketDetails) {
+      return res.status(400).json({ error: "Replacement is already out." });
+    }
+    const otherEndId = slot === "striker" ? currentMatch.nonStrikerId : currentMatch.strikerId;
+    if (replacementId === otherEndId) {
+      return res.status(400).json({ error: "Replacement is already at the crease." });
+    }
+
+    // Mark the leaving batsman as retired hurt (not out, keeps their score).
+    const injured = battingTeam.players.find((p) => p.id === injuredId);
+    if (injured) {
+      injured.retiredHurt = true;
+    }
+
+    // Bring the replacement in. If they were previously retired hurt and are
+    // now returning, clear that flag — they are active again.
+    replacement.retiredHurt = false;
+    if (slot === "striker") {
+      currentMatch.strikerId = replacementId;
+    } else {
+      currentMatch.nonStrikerId = replacementId;
+    }
+
+    const { error: updateError } = await supabase
+      .from("matches")
+      .update({ state: currentMatch, updated_at: new Date() })
+      .eq("id", "live-match");
+
+    if (updateError) {
+      return res.status(500).json({ error: "Failed to update injured batsman in database." });
+    }
+
+    return res.status(200).json(currentMatch);
+  } catch (err) {
+    console.error("Injure batsman error:", err);
+    return res.status(500).json({ error: "Server error injuring batsman." });
   }
 });
 
@@ -1634,9 +1721,11 @@ app.post("/api/match/finish", async (req: Request, res: Response) => {
     await bumpTeamStanding(teamA.teamId, aResult);
     await bumpTeamStanding(teamB.teamId, bResult);
 
-    // Mark the live match so this can't double-count.
+    // Mark the live match so this can't double-count, and so a reload
+    // recognises the 2nd innings as finished (e.g. all-out, not just chased).
     (currentMatch as any).resultRecorded = true;
     (currentMatch as any).resultText = resultText;
+    teamB.inningsComplete = true;
     await supabase
       .from("matches")
       .update({ state: currentMatch, updated_at: new Date() })
